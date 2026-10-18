@@ -1,0 +1,13 @@
+import {NextResponse} from 'next/server';
+export async function POST(request:Request){
+ try{if(request.headers.get('origin') && new URL(request.headers.get('origin')!).host!==new URL(request.url).host)return NextResponse.json({message:'Request origin not allowed.'},{status:403});}catch{return NextResponse.json({message:'Invalid request origin.'},{status:403})}
+ let body;try{const text=await request.text();if(text.length>12000)throw Error();body=JSON.parse(text)}catch{return NextResponse.json({message:'Please check your form details.'},{status:400})}
+ if(!body||typeof body!=='object'||Array.isArray(body))return NextResponse.json({message:'Invalid request.'},{status:400});
+ if(body.website)return NextResponse.json({message:'Thank you for your enquiry.'});
+ const valid=(v:unknown,max:number)=>typeof v==='string'&&v.trim().length>0&&v.length<=max;
+ if(!valid(body.name,100)||!valid(body.email,200)||!/^\S+@\S+\.\S+$/.test(body.email)||body.consent!=='on'||(body.message&&(!valid(body.message,3000)))||(body.phone&& !valid(body.phone,30))||!['visit','enquiry'].includes(body.type))return NextResponse.json({message:'Please provide a valid name and email, and accept the privacy notice.'},{status:400});
+ if(body.type==='visit'&&(!/^\d{4}-\d{2}-\d{2}$/.test(body.date||'')||body.date<new Date().toISOString().slice(0,10)||!['10:00','11:30','14:00','15:30'].includes(body.time)))return NextResponse.json({message:'Please choose a future visit date and an available time.'},{status:400});
+ if(!process.env.RESEND_API_KEY||!process.env.ENQUIRY_TO_EMAIL||!process.env.ENQUIRY_FROM_EMAIL)return NextResponse.json({message:'Online enquiries are not yet available for this demonstration home. Please return once the home’s contact details are published.'},{status:503});
+ try{const result=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.ENQUIRY_FROM_EMAIL,to:process.env.ENQUIRY_TO_EMAIL,reply_to:body.email,subject:body.type==='visit'?'New visit request':'New website enquiry',text:`Name: ${body.name}\nEmail: ${body.email}\nPhone: ${body.phone||'Not supplied'}\nPreferred visit: ${body.date||'N/A'} ${body.time||''}\nMessage: ${body.message||'Not supplied'}`})});if(!result.ok)throw Error();return NextResponse.json({message:body.type==='visit'?'Thank you. Your visit request has been sent. The team will contact you to confirm.':'Thank you. Your enquiry has been sent to the team.'})}catch{return NextResponse.json({message:'Your enquiry could not be sent. Please try again later.'},{status:502})}
+}
+
